@@ -3,6 +3,8 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   latido:
     runs-on: ubuntu-latest
@@ -18,5 +20,9 @@ jobs:
           git config user.name "superagente-bot"
           git config user.email "bot@glsystems.local"
           git add memoria.json registros.json perfil_negocio.json 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "latido: memoria actualizada"
-          git push
+          if git diff --cached --quiet; then
+            echo "sin cambios que persistir"
+          else
+            git commit -m "latido: memoria actualizada"
+            git push
+          fi
