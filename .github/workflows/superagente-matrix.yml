@@ -1,0 +1,32 @@
+name: Superagente Matrix cifrado (latido 5 min)
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  latido-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install "matrix-nio[e2e]"
+      - run: python3 agente_matrix.py
+        env:
+          MATRIX_HOMESERVER: ${{ secrets.MATRIX_HOMESERVER }}
+          MATRIX_USUARIO: ${{ secrets.MATRIX_USUARIO }}
+          MATRIX_PASSWORD: ${{ secrets.MATRIX_PASSWORD }}
+          MATRIX_FRASE: ${{ secrets.MATRIX_FRASE }}
+      - name: Persistir memoria y sesión cifrada
+        run: |
+          git config user.name "superagente-bot"
+          git config user.email "bot@glsystems.local"
+          git add memoria.json registros.json perfil_negocio.json matrix_sesion.json matrix_cripto.db 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "sin cambios que persistir"
+          else
+            git commit -m "latido matrix: memoria y sesion actualizadas"
+            git push
+          fi
