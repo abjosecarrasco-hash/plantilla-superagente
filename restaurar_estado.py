@@ -18,7 +18,19 @@ if not arts:
     print("sin artefacto previo: login fresco")
     sys.exit(0)
 aid = max(arts, key=lambda a: a["created_at"])["id"]
-with urllib.request.urlopen(urllib.request.Request(f"{API}/{aid}/zip", headers=H), timeout=120) as r:
+# NO seguir el redirect con el token (Azure lo rechaza): pedir Location y bajar limpio
+req = urllib.request.Request(f"{API}/{aid}/zip", headers=dict(H, **{"Range": "bytes=0-"}))
+class SinRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k): return None
+opener = urllib.request.build_opener(SinRedirect)
+try:
+    opener.open(req, timeout=60)
+except urllib.error.HTTPError as e:
+    if e.code not in (302, 303, 307):
+        raise
+    ubic = e.headers["Location"]
+req2 = urllib.request.Request(ubic)  # sin token: URL firmada
+with urllib.request.urlopen(req2, timeout=180) as r:
     open("estado.zip", "wb").write(r.read())
 subprocess.run(["unzip", "-o", "estado.zip"], check=True)
 os.remove("estado.zip")
