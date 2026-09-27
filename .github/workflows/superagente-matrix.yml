@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
-  actions: read
+  actions: write
 jobs:
   latido-matrix:
     runs-on: ubuntu-latest
