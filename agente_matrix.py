@@ -47,7 +47,7 @@ async def main():
     config = AsyncClientConfig(encryption_enabled=True,
                                store_sync_tokens=True,
                                pickle_key=FRASE,
-                               store_name="matrix_cripto")
+                               store_name="matrix_cripto.db")
     # device_id conocido => nio crea el almacén E2E desde el constructor
     cliente = AsyncClient(HOMESERVER, USUARIO,
                           device_id=sesion.get("device_id", ""),
@@ -65,15 +65,12 @@ async def main():
                   open(F_SESION, "w", encoding="utf-8"))
         print("login nuevo, device:", resp.device_id)
 
-    # --- claves E2E: cargar almacén si existe ---
-    if os.path.exists(F_CRIPTO):
-        try:
-            await cliente.load_store()
-            print("store cripto cargado, olm activo")
-        except Exception as e:
-            print("store cripto no cargó:", e)
-    else:
-        print("store cripto nuevo (primera corrida)")
+    # --- claves E2E: load_store CREA el almacén si no existe, o lo carga ---
+    try:
+        await cliente.load_store()
+        print("store cripto activo (olm listo)")
+    except Exception as e:
+        print("store cripto falló:", e)
 
     h = cerebro.cargar_historial()
     perfil = cerebro.cargar_perfil()
