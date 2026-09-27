@@ -16,21 +16,8 @@ jobs:
       - name: Restaurar estado privado (sesión E2E)
         env:
           GT: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          API="https://api.github.com/repos/${{ github.repository }}/actions/artifacts"
-          LISTA=$(curl -s -H "Authorization: Bearer $GT" "$API?per_page=100")
-          AID=$(echo "$LISTA" | python3 -c "
-import json,sys
-arts=[a for a in json.load(sys.stdin).get('artifacts',[]) if a['name']=='estado-matrix' and not a['expired']]
-print(max(arts, key=lambda a: a['created_at'])['id'] if arts else '')")
-          if [ -n "$AID" ]; then
-            curl -sL -H "Authorization: Bearer $GT" -H "Accept: application/vnd.github+json" \
-              "$API/$AID/zip" -o estado.zip
-            unzip -o estado.zip && rm estado.zip
-            echo "estado restaurado (artefacto $AID)"
-          else
-            echo "sin artefacto previo: login fresco"
-          fi
+          REPO: ${{ github.repository }}
+        run: python3 restaurar_estado.py
       - run: pip install "matrix-nio[e2e]"
       - run: python3 agente_matrix.py
         env:
