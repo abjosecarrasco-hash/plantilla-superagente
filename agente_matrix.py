@@ -92,21 +92,19 @@ async def main():
         await cliente.room_send(room_id, "m.room.message",
                                 {"msgtype": "m.text", "body": texto})
 
-    # REGLA ANTI-SPAM: solo salas con invitación explícita (DMs/invites
-    # reales). Las salas automáticas (bienvenida de matrix.org, salas
-    # públicas) se ignoran: el bot jamás responde donde no lo invitaron.
-    activas = h.setdefault("salas_activas", {})
+    # REGLA ANTI-SPAM: el bot solo entra a salas por invitación explícita
+    # (nunca se auto-une a salas públicas). Una vez que una sala aparece
+    # en sync.rooms.join fue, por construcción, invitada y aceptada aquí
+    # mismo: no depende de un flag persistido (evita carreras de git commit
+    # entre corridas paralelas que borraban el estado "activa").
     for room_id in list((sync.rooms.invite or {}).keys()):
         try:
             await cliente.join(room_id)
-            activas[room_id] = True
             print("invitación aceptada, sala activa:", room_id)
         except Exception as e:
             print("no pude unirme a", room_id, e)
 
     for room_id, sala in (sync.rooms.join or {}).items():
-        if room_id not in activas:
-            continue
         for evento in getattr(getattr(sala, "timeline", None), "events", []) or []:
             if not isinstance(evento, RoomMessageText):
                 continue
