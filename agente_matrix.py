@@ -6,21 +6,22 @@ consumidor (regla de un solo consumidor). 100% gratuito, sin Meta.
 Cifrado extremo a extremo: la conversación no pasa por servidores que
 puedan leerla (protocolo Matrix, estándar abierto y auditado).
 
-Requisitos: pip install "matrix-nio[e2e]"
+Requisitos: pip install "matrix-nio[e2e]" (v0.26+)
 Secretos (GitHub): MATRIX_HOMESERVER, MATRIX_USUARIO, MATRIX_PASSWORD,
-MATRIX_FRASE (passphrase del almacén criptográfico local).
+MATRIX_FRASE (passphrase que cifra el almacén Olm local).
 
-Persistencia en el repo (sobrevive entre corridas):
-  - matrix_sesion.json : access_token + device_id (dispositivo estable)
-  - matrix_cripto.db   : claves Olm/Megolm (cifrado E2E)
-  - memoria.json       : token de sincronización + estado de clientes
+Persistencia PRIVADA entre corridas (repo público: NADA de tokens en git):
+  - artefacto "estado-matrix": matrix_sesion.json (access_token + device_id)
+    y matrix_cripto.db (claves E2E cifradas con MATRIX_FRASE)
+  - memoria.json / registros.json / perfil_negocio.json: en git (sin secretos)
 """
 import asyncio, json, os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cerebro
 
-from nio import AsyncClient, LoginResponse, RoomMessageText, SyncResponse
+from nio import (AsyncClient, AsyncClientConfig, LoginResponse,
+                  RoomMessageText, SyncResponse)
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 F_SESION = os.path.join(BASE, "matrix_sesion.json")
@@ -36,10 +37,14 @@ async def main():
     if not USUARIO or not PASSWORD:
         print("Faltan MATRIX_USUARIO o MATRIX_PASSWORD"); return
 
-    cliente = AsyncClient(HOMESERVER, USUARIO)
-    cliente.user_id = USUARIO
+    config = AsyncClientConfig(encryption_enabled=True,
+                               store_sync_tokens=True,
+                               pickle_key=FRASE,
+                               store_name="matrix_cripto")
+    cliente = AsyncClient(HOMESERVER, USUARIO,
+                          store_path=BASE, config=config)
 
-    # --- sesión persistente: un MISMO dispositivo en cada corrida ---
+    # --- sesión persistente: un MISMO dispositivo E2E en cada corrida ---
     sesion = {}
     if os.path.exists(F_SESION):
         try:
@@ -50,20 +55,24 @@ async def main():
         cliente.restore_login(user_id=USUARIO,
                               device_id=sesion["device_id"],
                               access_token=sesion["access_token"])
+        print("sesión restaurada, device:", sesion["device_id"])
     else:
         resp = await cliente.login(PASSWORD, device_name="Superagente GLSystems")
         if not isinstance(resp, LoginResponse):
-            print("login falló:", resp); return
+            print("login falló:", resp); await cliente.close(); return
         json.dump({"access_token": resp.access_token, "device_id": resp.device_id},
                   open(F_SESION, "w", encoding="utf-8"))
-        cliente.device_id = resp.device_id
+        print("login nuevo, device:", resp.device_id)
 
-    # --- almacén criptográfico persistente (E2EE) ---
-    try:
-        cliente.load_store(F_CRIPTO, FRASE)
-        print("store cripto cargado")
-    except Exception as e:
-        print("store cripto nuevo:", e)
+    # --- claves E2E: cargar almacén si existe ---
+    if os.path.exists(F_CRIPTO):
+        try:
+            await cliente.load_store()
+            print("store cripto cargado, olm activo")
+        except Exception as e:
+            print("store cripto no cargó:", e)
+    else:
+        print("store cripto nuevo (primera corrida)")
 
     h = cerebro.cargar_historial()
     perfil = cerebro.cargar_perfil()
@@ -72,24 +81,33 @@ async def main():
     except Exception:
         registros = {}
 
-    # --- sincronización de una pasada con token guardado ---
     desde = h.get("matrix_since")
     sync = await cliente.sync(timeout=0, since=desde, full_state=False)
     if not isinstance(sync, SyncResponse):
         print("sync falló:", sync); await cliente.close(); return
     h["matrix_since"] = sync.next_batch
+    print("sync ok, salas:", len(sync.rooms.join or {}))
 
     async def enviar(room_id, texto):
-        contenido = {"msgtype": "m.text", "body": texto}
-        await cliente.room_send(room_id, "m.room.message", contenido)
+        await cliente.room_send(room_id, "m.room.message",
+                                {"msgtype": "m.text", "body": texto})
 
-    for room_id in (sync.rooms.join or {}):
+    # REGLA ANTI-SPAM: solo salas con invitación explícita (DMs/invites
+    # reales). Las salas automáticas (bienvenida de matrix.org, salas
+    # públicas) se ignoran: el bot jamás responde donde no lo invitaron.
+    activas = h.setdefault("salas_activas", {})
+    for room_id in list((sync.rooms.invite or {}).keys()):
         try:
             await cliente.join(room_id)
-        except Exception:
-            pass
-        sala = sync.rooms.join[room_id]
-        for evento in getattr(sala.timeline, "events", []) or []:
+            activas[room_id] = True
+            print("invitación aceptada, sala activa:", room_id)
+        except Exception as e:
+            print("no pude unirme a", room_id, e)
+
+    for room_id, sala in (sync.rooms.join or {}).items():
+        if room_id not in activas:
+            continue
+        for evento in getattr(getattr(sala, "timeline", None), "events", []) or []:
             if not isinstance(evento, RoomMessageText):
                 continue
             if evento.sender == USUARIO:
