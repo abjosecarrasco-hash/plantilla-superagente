@@ -67,7 +67,9 @@ async def main():
 
     # --- claves E2E: load_store CREA el almacén si no existe, o lo carga ---
     try:
-        await cliente.load_store()
+        res = cliente.load_store()          # síncrono en nio 0.26
+        if hasattr(res, "__await__"):
+            await res
         print("store cripto activo (olm listo)")
     except Exception as e:
         print("store cripto falló:", e)
