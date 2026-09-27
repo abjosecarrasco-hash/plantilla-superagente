@@ -37,20 +37,21 @@ async def main():
     if not USUARIO or not PASSWORD:
         print("Faltan MATRIX_USUARIO o MATRIX_PASSWORD"); return
 
-    config = AsyncClientConfig(encryption_enabled=True,
-                               store_sync_tokens=True,
-                               pickle_key=FRASE,
-                               store_name="matrix_cripto")
-    cliente = AsyncClient(HOMESERVER, USUARIO,
-                          store_path=BASE, config=config)
-
-    # --- sesión persistente: un MISMO dispositivo E2E en cada corrida ---
+    # --- sesión persistente: leer ANTES de construir el cliente ---
     sesion = {}
     if os.path.exists(F_SESION):
         try:
             sesion = json.load(open(F_SESION, encoding="utf-8"))
         except Exception:
             sesion = {}
+    config = AsyncClientConfig(encryption_enabled=True,
+                               store_sync_tokens=True,
+                               pickle_key=FRASE,
+                               store_name="matrix_cripto")
+    # device_id conocido => nio crea el almacén E2E desde el constructor
+    cliente = AsyncClient(HOMESERVER, USUARIO,
+                          device_id=sesion.get("device_id", ""),
+                          store_path=BASE, config=config)
     if sesion.get("access_token") and sesion.get("device_id"):
         cliente.restore_login(user_id=USUARIO,
                               device_id=sesion["device_id"],
